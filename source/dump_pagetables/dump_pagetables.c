@@ -106,100 +106,101 @@ static void print_pmd_tree(struct seq_file *s, pmd_t *pmd0, unsigned long upper)
 	}
 }
 
-static void print_pud_tree(struct seq_file *s, pud_t *pud0, unsigned long upper)
+static void print_pud_tree(struct seq_file *s, pud_t *pud0, unsigned long upper, loff_t off)
 {
-	unsigned long i;
+	unsigned long i = off / (1);
+	unsigned long j = off % (1);
 	unsigned long va;
 	bool leaf;
 
-	for (i = 0; i < PTRS_PER_PUD; i++) {
-		pud_t *pud = pud0 + i;
-		unsigned long pfn;
+	i = off / (1);
+	j = off % (1);
 
-		if (pud_none(*pud) || unlikely(pud_bad(*pud)))
-			continue;
+	pud_t *pud = pud0 + i;
+	unsigned long pfn;
 
-		pfn = pud_pfn(*pud);
-		leaf = pud_large(*pud);
+	if (pud_none(*pud) || unlikely(pud_bad(*pud)))
+		return;
 
-		va = upper + (i << PUD_SHIFT);
+	pfn = pud_pfn(*pud);
+	leaf = pud_large(*pud);
 
-		if (pfn)
-			seq_printf(s, "\t\tPMD ID %03ld VA %016lx PFN %lx TYP %s\n", i, va, pfn, leaf ? "P" : "T");
+	va = upper + (i << PUD_SHIFT);
 
-		if (leaf)
-			continue;
+	if (pfn && !j)
+		seq_printf(s, "\t\tPMD ID %03ld VA %016lx PFN %lx TYP %s\n", i, va, pfn, leaf ? "P" : "T");
 
-		print_pmd_tree(s, (pmd_t *) pud_page_vaddr(*pud), va);
-	}
+	if (leaf)
+		return;
+
+	print_pmd_tree(s, (pmd_t *) pud_page_vaddr(*pud), va);
 }
 
-static void print_p4d_tree(struct seq_file *s, p4d_t *p4d0, unsigned long upper)
+static void print_p4d_tree(struct seq_file *s, p4d_t *p4d0, unsigned long upper, loff_t off)
 {
-	unsigned long i;
+	unsigned long i = off / (PTRS_PER_PUD);
+	unsigned long j = off % (PTRS_PER_PUD);
 	unsigned long va;
 	bool leaf;
 
-	for (i = 0; i < PTRS_PER_P4D; i++) {
-		p4d_t *p4d = p4d0 + i;
-		unsigned long pfn;
+	p4d_t *p4d = p4d0 + i;
+	unsigned long pfn;
 
-		if (p4d_none(*p4d) || unlikely(p4d_bad(*p4d)))
-			continue;
+	if (p4d_none(*p4d) || unlikely(p4d_bad(*p4d)))
+		return;
 
-		pfn = p4d_pfn(*p4d);
-		leaf = p4d_large(*p4d);
+	pfn = p4d_pfn(*p4d);
+	leaf = p4d_large(*p4d);
 
-		va = upper + (i << P4D_SHIFT);
+	va = upper + (i << P4D_SHIFT);
 
-		if (pfn)
-			seq_printf(s, "\tPUD ID %03ld VA %016lx PFN %lx TYP %s\n", i, va, pfn, leaf ? "P" : "T");
+	if (pfn && !j)
+		seq_printf(s, "\tPUD ID %03ld VA %016lx PFN %lx TYP %s\n", i, va, pfn, leaf ? "P" : "T");
 
-		if (leaf)
-			continue;
+	if (leaf)
+		return;
 
-		print_pud_tree(s, (pud_t *) p4d_page_vaddr(*p4d), va);
-	}
+	print_pud_tree(s, (pud_t *) p4d_page_vaddr(*p4d), va, j);
 }
 
-static void print_pgd_tree(struct seq_file *s, pgd_t *pgd0, bool include_kernel)
+static void print_pgd_tree(struct seq_file *s, pgd_t *pgd0, bool include_kernel, loff_t off)
 {
-	unsigned long i;
-	unsigned long va;
-	bool leaf;
-
 	unsigned long upper = 0;
 
-	for (i = 0; i < PTRS_PER_PGD; i++) {
-		pgd_t *pgd = pgd0 + i;
-		unsigned long pfn;
+	unsigned long i = off / (PTRS_PER_P4D * PTRS_PER_PUD);
+	unsigned long j = off % (PTRS_PER_P4D * PTRS_PER_PUD);
+	unsigned long va;
+	bool leaf;
 
-		if (pgd_none(*pgd) || unlikely(pgd_bad(*pgd)))
-			continue;
+	pgd_t *pgd = pgd0 + i;
+	unsigned long pfn;
 
-		pfn = pgd_pfn(*pgd);
-		leaf = pgd_large(*pgd);
+	if (pgd_none(*pgd) || unlikely(pgd_bad(*pgd)))
+		return;
 
-		if (i == 256) {
-			if (!include_kernel)
-				return;
+	pfn = pgd_pfn(*pgd);
+	leaf = pgd_large(*pgd);
 
-			upper = PGDIR_MASK << 9;
-		}
+	if (i >= 256) {
+		if (!include_kernel)
+			return;
 
-		va = upper + (i << PGDIR_SHIFT);
-
-		if (pfn)
-			seq_printf(s, "P4D ID %03ld VA %016lx PFN %lx TYP %s\n", i, va, pfn, leaf ? "P" : "T");
-
-		if (leaf)
-			continue;
-
-		if (!pgtable_l5_enabled())
-			print_p4d_tree(s, (p4d_t *) pgd, va);
-		else
-			print_p4d_tree(s, (p4d_t *) pgd_page_vaddr(*pgd), va);
+		upper = PGDIR_MASK << 9;
 	}
+
+	va = upper + (i << PGDIR_SHIFT);
+
+	if (pfn && !j)
+		seq_printf(s, "P4D ID %03ld VA %016lx PFN %lx TYP %s\n", i, va, pfn, leaf ? "P" : "T");
+
+	if (leaf)
+		return;
+
+	if (!pgtable_l5_enabled())
+		print_p4d_tree(s, (p4d_t *) pgd, va, j);
+	else
+		print_p4d_tree(s, (p4d_t *) pgd_page_vaddr(*pgd), va, j);
+
 }
 
 long unsigned int extract_cr3(struct mm_struct *mm)
@@ -211,6 +212,7 @@ long unsigned int extract_cr3(struct mm_struct *mm)
 static int pt_seq_show(struct seq_file *s, void *v)
 {
 	struct mm_struct *mm = NULL;
+	loff_t *spos = v;
 
 	if (selected_pid != -1) {
 		mm = get_mm_from_pid(s, selected_pid, false);
@@ -228,10 +230,12 @@ static int pt_seq_show(struct seq_file *s, void *v)
 		return 0;
 	}
 
-	seq_printf(s, "CR3 PID %d PFN %lx\n", selected_pid, extract_cr3(mm));
-	seq_printf(s, "\n");
+	if (*spos == 0) {
+		seq_printf(s, "CR3 PID %d PFN %lx\n", selected_pid, extract_cr3(mm));
+		seq_printf(s, "\n");
+	}
 
-	print_pgd_tree(s, mm->pgd, true);
+	print_pgd_tree(s, mm->pgd, true, *spos);
 
 	mmput(mm);
 
@@ -241,9 +245,6 @@ static int pt_seq_show(struct seq_file *s, void *v)
 static void *pt_seq_start(struct seq_file *s, loff_t *pos)
 {
 	loff_t *spos;
-
-	if (*pos)
-		return NULL;
 
 	spos = kmalloc(sizeof(loff_t), GFP_KERNEL);
 	if (!spos)
@@ -257,8 +258,11 @@ static void *pt_seq_next(struct seq_file *s, void *v, loff_t *pos)
 {
 	loff_t *spos = v;
 	*pos = ++*spos;
-	// return spos;
-	return NULL;
+
+	if (*spos >= PTRS_PER_PGD * PTRS_PER_P4D * PTRS_PER_PUD)
+		return NULL;
+
+	return spos;
 }
 
 static void pt_seq_stop(struct seq_file *s, void *v)
