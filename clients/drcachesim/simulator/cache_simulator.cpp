@@ -152,9 +152,10 @@ cache_simulator_t::cache_simulator_t(const cache_simulator_knobs_t &knobs_, cons
     int host_page_table_record_num = 0;
     fscanf(host_page_table_file, "%d\n", &host_page_table_record_num);
     std::cerr << "Loading host_page table with " <<  host_page_table_record_num << " PT entries...\n";
+    unsigned long long discard = 0;
     for (int i = 0; i < host_page_table_record_num; i++) {
       page_table_info_t tmp;
-      fscanf(host_page_table_file, "%llx,%llx,%llx,%llx,%llx\n", &(tmp.VA), &(tmp.PE1), &(tmp.PE2), &(tmp.PE3), &(tmp.PA));
+      fscanf(host_page_table_file, "%llx,%llx,%llx,%llx,%llx,%llx\n", &(tmp.VA), &(tmp.PE1), &(tmp.PE2), &(tmp.PE3), &(discard), &(tmp.PA));
       host_page_table.insert(std::make_pair(tmp.VA, tmp));
     }
     std::cerr << "Loaded " << host_page_table.size() << " unique PT entries.\n";
