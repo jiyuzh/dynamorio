@@ -38,6 +38,7 @@ const unsigned int PWC_SIZE[] = { PWC_ENTRY_SIZE * 2, PWC_ENTRY_SIZE * 4, PWC_EN
 #define PAGE_TABLE_ENTRY_SIZE 8 
 #define PAGE_OFFSET_SIZE 12
 #define PAGE_INDEX_SIZE 9
+#define SIMULATOR_HEARTBEAT_FREQ 16 //Log of number of meminsts to process between two simulator hearbeats
 
 #include <iostream>
 #include <iterator>
@@ -464,7 +465,7 @@ cache_simulator_t::process_memref(const memref_t &memref)
     num_request++;
     num_request_shifted++;
 
-    if ((num_request_shifted >> 30) > 0) {
+    if ((num_request_shifted >> SIMULATOR_HEARTBEAT_FREQ) > 0) {
       num_request_shifted = 0;
       std::cerr << "Heartbeat. " << num_request << " references processed.\n";
       print_results();

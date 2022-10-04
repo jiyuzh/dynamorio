@@ -1,0 +1,5 @@
+*
+!.gitignore
+!dump_pagetables.c
+!example.tbl
+!Makefile
