@@ -1,7 +1,7 @@
 #!csharp
 
 // IMPORTANT NOTICE: don't forget to attach line count !!!
-// sed -i "1i $(wc -l ./host.pt_dump | awk '{print $1}')" ./host.pt_dump
+// sed -i "1i $(wc -l ./pt_dump | awk '{print $1}')" ./pt_dump
 
 var pt_bounding = 0x22f0f3d000UL; // the max va of host pt dump
 
@@ -11,7 +11,10 @@ using System.IO;
 
 Console.WriteLine($"Loading");
 
-var file = File.ReadAllLines("pt_dump_raw");
+var path = @"/usr/src/dynamorio-trace/eval/results/2022-10-03-1664784259-memcached";
+var input = Path.Combine(path, "pt_dump_raw");
+var output = Path.Combine(path, "pt_dump");
+var file = File.ReadAllLines(input);
 
 Console.WriteLine($"Done");
 
@@ -36,8 +39,8 @@ var max = 0UL;
 var sb = new StringBuilder();
 
 Console.WriteLine($"Total Line: {file.Length}");
-if (File.Exists("pt_dump")) {
-	File.Delete("pt_dump");
+if (File.Exists(output)) {
+	File.Delete(output);
 }
 
 for (var i = 1; i < file.Length; i++) {
@@ -47,7 +50,7 @@ for (var i = 1; i < file.Length; i++) {
 
 	if (i % 100000 == 0) {
 		Console.WriteLine($"Now {i}...");
-		File.AppendAllText("pt_dump", sb.ToString());
+		File.AppendAllText(output, sb.ToString());
 		sb.Clear();
 	}
 
@@ -78,4 +81,4 @@ for (var i = 1; i < file.Length; i++) {
 }
 
 // IMPORTANT NOTICE: don't forget to attach line count !!!
-// // sed -i "1i $(wc -l ./host.pt_dump | awk '{print $1}')" ./host.pt_dump
+// sed -i "1i $(wc -l ./pt_dump | awk '{print $1}')" ./pt_dump

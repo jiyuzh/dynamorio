@@ -67,6 +67,8 @@ while true; do
 		count=`expr $count + 1`
 done
 
+sudo chmod -R 777 "$OUTPUT_DIR"
+
 sync
 
 echo "Done"
