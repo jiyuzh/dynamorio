@@ -1,6 +1,6 @@
 # this is not a full script, use it with source
 
-TRACER_DIR="/usr/src/dynamorio"
+TRACER_DIR="/usr/src/dynamorio-trace"
 PERF_DIR="/usr/src/vanilla-5.10.123/tools/perf"
 
 cd "$SCRIPT_DIR"

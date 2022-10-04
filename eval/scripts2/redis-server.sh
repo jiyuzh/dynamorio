@@ -8,7 +8,7 @@ if [ "$#" -ge 1 ]; then
 fi
 
 sudo service redis stop
-sudo killall redis
+sudo killall redis-server
 
 source ./init.sh
 

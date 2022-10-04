@@ -11,7 +11,7 @@ using System.IO;
 
 Console.WriteLine($"Loading");
 
-var path = @"/usr/src/dynamorio-trace/eval/results/2022-10-03-1664784259-memcached";
+var path = @"/usr/src/dynamorio-trace/eval/results/2022-10-04-1664899431-debug";
 var input = Path.Combine(path, "pt_dump_raw");
 var output = Path.Combine(path, "pt_dump");
 var file = File.ReadAllLines(input);
