@@ -38,6 +38,7 @@ const unsigned int PWC_SIZE[] = { PWC_ENTRY_SIZE * 2, PWC_ENTRY_SIZE * 4, PWC_EN
 #define PAGE_TABLE_ENTRY_SIZE 8 
 #define PAGE_OFFSET_SIZE 12
 #define PAGE_INDEX_SIZE 9
+#define SIMULATOR_HEARTBEAT_FREQ 22 //Log of number of meminsts to process between two simulator hearbeats
 
 #include <iostream>
 #include <iterator>
@@ -464,7 +465,7 @@ cache_simulator_t::process_memref(const memref_t &memref)
     num_request++;
     num_request_shifted++;
 
-    if ((num_request_shifted >> 22) > 0) {
+    if ((num_request_shifted >> SIMULATOR_HEARTBEAT_FREQ) > 0) {
       num_request_shifted = 0;
       std::cerr << "Heartbeat. " << num_request << " references processed.\n";
       print_results();
@@ -637,9 +638,11 @@ cache_simulator_t::process_memref(const memref_t &memref)
           }
 
           for (unsigned int level_guest = 1; level_guest <= NUM_PAGE_TABLE_LEVELS; level_guest++) {
+            long long unsigned int page_offset_in_vpage = 8 * ((virtual_full_page_addr >> (12 + (4 - level_guest) * 9)) & ((1 << 9) - 1));
             if (gpwc_hit_level < level_guest) {
               // if not found in the PWC, then make a memory req
-              one_pw_at_host(page_walk_res, *(guest_it->second.all[level_guest]), level_guest, core);
+              //one_pw_at_host(page_walk_res, *(guest_it->second.all[level_guest]) + 8 * ((virtual_full_page_addr >> (12 + (4 - level_guest) * 9)) & ((1 << 9) - 1)), level_guest, core);
+              one_pw_at_host(page_walk_res, *(guest_it->second.all[level_guest]), page_offset_in_vpage, level_guest, core);
 
             } else if (gpwc_hit_level == level_guest) {
               // if found in the PWC, indicate PWC_LAT
@@ -954,6 +957,7 @@ void cache_simulator_t::make_request_simple(trace_type_t type, long long unsigne
 
 void cache_simulator_t::one_pw_at_host(page_walk_hm_result_t& page_walk_res, 
                                        long long unsigned int guest_addr, 
+                                       long long unsigned int page_offset_in_vpage, 
                                        uint64_t level_guest, 
                                        int core) {
 
@@ -976,10 +980,11 @@ void cache_simulator_t::one_pw_at_host(page_walk_hm_result_t& page_walk_res,
   long long unsigned int page_offset_guest_addr_to_find = 0;
   // find a record in the host PT corresponding to the given guest address
   page_table_t::iterator host_it = host_page_table.find((guest_addr >> PAGE_OFFSET_SIZE) << PAGE_OFFSET_SIZE);
-  page_offset_guest_addr_to_find = PAGE_TABLE_ENTRY_SIZE * 
-                             ((((guest_addr >> PAGE_OFFSET_SIZE) >> (PAGE_INDEX_SIZE * level_guest))  &  ((1 << PAGE_INDEX_SIZE) - 1))); 
+  page_offset_guest_addr_to_find = page_offset_in_vpage;
+                             
 
-  long long unsigned int guest_addr_to_find = guest_addr + page_offset_guest_addr_to_find;
+  //long long unsigned int guest_addr_to_find = guest_addr + page_offset_guest_addr_to_find;
+  long long unsigned int guest_addr_to_find = guest_addr;
 
   for (unsigned int level_host = 1; level_host <= NUM_PAGE_TABLE_LEVELS-1; level_host++) {
     if (pwc_hit_level < level_host) {

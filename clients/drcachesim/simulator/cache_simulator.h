@@ -155,6 +155,7 @@ protected:
     void make_request_simple(trace_type_t type, long long unsigned int addr, int core);
     void one_pw_at_host(page_walk_hm_result_t& page_walk_res, 
 				           long long unsigned int guest_addr, 
+				           long long unsigned int page_offset_in_vpage, 
 				           uint64_t level_guest, 
 				           int core);
 
