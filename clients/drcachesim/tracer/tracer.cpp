@@ -574,7 +574,7 @@ memtrace(void *drcontext, bool skip_size_cap)
               std::cerr << "Page dump module is busy and locked. I am waiting for " << lockFilename << " to be released." << std::endl;
             }
             if (!pageTableWasDumped) {
-              std::cerr << "Page table dump module was attached to PID=" << std::to_string(getpid()) << std::endl;
+              /*std::cerr << "Page table dump module was attached to PID=" << std::to_string(getpid()) << std::endl;
               system((std::string("echo ") + std::to_string(getpid()) + " > /proc/page_tables").c_str());
               system((std::string("cat /proc/page_tables > ") + op_outdir.get_value().c_str() + "/pt_dump_raw").c_str());
               system((std::string("cat /proc/" + std::to_string(getpid()) + "/maps > ") + op_outdir.get_value().c_str() + "/proc_maps").c_str());
@@ -582,7 +582,7 @@ memtrace(void *drcontext, bool skip_size_cap)
               if (op_VM_name.get_value() != "") {
                 system((std::string("") + op_VM_hookscript_path.get_value().c_str() + " " + op_VM_name.get_value().c_str() + " > " + op_outdir.get_value().c_str() + "/vm_pt_dump_raw").c_str()) ;
                 std::cerr << (std::string("") + op_VM_hookscript_path.get_value().c_str() + " " + op_VM_name.get_value().c_str() + " > " + op_outdir.get_value().c_str() + "/vm_pt_dump_raw").c_str();
-              }
+              }*/
               pageTableWasDumped = true;
             }
             releaseLock(lockResult, lockFilename); 
@@ -1414,8 +1414,15 @@ hit_instr_count_threshold()
         std::string str(buffer);
 
         std::cerr << std::endl;
-        std::cerr << "!!!!***ATTENTION***!!!!\t" << str << "\tStarting recording a trace" << std::endl;
+        std::cerr << "!!!!***ATTENTION***!!!!\t" << str << "\tStarting recording a trace on " << dr_get_process_id() << std::endl;
         std::cerr << std::endl;
+
+        FILE* enabler_file = fopen(op_enabler_filename.get_value().c_str(),"w+");
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-result" 
+        fprintf(enabler_file, "%d", dr_get_process_id());
+#pragma GCC diagnostic pop 
+        fclose(enabler_file);
 
         disable_delay_instrumentation();
         enable_tracing_instrumentation();

@@ -2,14 +2,23 @@
  * Debug helper to dump the current kernel pagetables of the system
  * so that we can see what the various memory ranges are set to.
  *
- * (C) Copyright 2008 Intel Corporation
+ * (C) Copyright 2022 Jiyuan Zhang
  *
- * Author: Arjan van de Ven <arjan@linux.intel.com>
+ * Author: Jiyuan Zhang <jiyuanz3@illinois.edu>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; version 2
  * of the License.
+ */
+
+/*
+ * PTE ID 031 VA ffffffffc3e00000 PFN 184f17 TYP T
+ * PTE: This entry represents a PTE table/PMD huge page
+ * ID: Offset of this entry in the current PMD table
+ * VA: Virtual address prefix of this entry
+ * PFN: Physical frame number of the target
+ * TYP: Type of the target (T for table page, P for leaf page)
  */
 
 #include <linux/proc_fs.h>
@@ -19,288 +28,295 @@
 #include <linux/sort.h>
 #include <linux/slab.h>
 #include <linux/sched.h>
+#include <linux/sched/mm.h>
+#include <linux/security.h>
 
 #include <asm/pgtable.h>
 #include <asm/pgtable_64.h>
 
-/* Multipliers for offsets within the PTEs */
-#define PTE_LEVEL_MULT (PAGE_SIZE)
-#define PMD_LEVEL_MULT (PTRS_PER_PTE * PTE_LEVEL_MULT)
-#define PUD_LEVEL_MULT (PTRS_PER_PMD * PMD_LEVEL_MULT)
-#define PGD_LEVEL_MULT (PTRS_PER_PUD * PUD_LEVEL_MULT)
+static int selected_pid = 1;
 
-/* **************** Walk page table structure */
-typedef void (*table_callback_ptr)(struct seq_file *m, int level, int index, unsigned long int offset, unsigned long int entry);
-typedef void (*page_callback_ptr)(struct seq_file *m, int level, int index, unsigned long int offset, unsigned long int entry);
+// @return: may be null
+struct mm_struct *get_mm_from_pid(struct seq_file *s, pid_t pid, int checked)
+{
+	struct task_struct *task;
+	struct mm_struct *mm;
 
-struct walk_state {
-  int pml4_idx;
-  int pdpt_idx;
-  int pd_idx;
-  struct seq_file *m;
-  table_callback_ptr table_callback;
-  page_callback_ptr page_callback;
-};
+	task = pid_task(find_vpid(selected_pid), PIDTYPE_PID);
+	if (!task) {
+		return NULL;
+	}
 
-//static int selected_pid = -1;
-static int selected_pid = 30682;
+	mm = get_task_mm(task);
 
-long unsigned int my_read_cr3(void) {
-  long unsigned int ret;
-  asm("mov %%cr3, %%rax;":"=a"(ret));
-  return ret;
+	if (!mm) {
+		seq_printf(s, "Leave get_mm_from_pid, mm_struct not found\n");
+		return NULL;
+	}
+
+	return mm;
 }
 
-static void walk_pt(struct walk_state *state, pmd_t addr, unsigned long int P) {
-  int i;
-  pte_t *start = (pte_t *) pmd_page_vaddr(addr);
+static void print_pte_tree(struct seq_file *s, pte_t *pte0, unsigned long upper)
+{
+	unsigned long i;
+	unsigned long va;
 
-  for (i = 0; i < PTRS_PER_PTE; i++) {
-    if (state->page_callback)
-      state->page_callback(state->m, 4, i, P, (long unsigned int)start);
-    start++;
-  }
+	for (i = 0; i < PTRS_PER_PTE; i++) {
+		pte_t *pte = pte0 + i;
+		unsigned long pfn;
+
+		if (pte_none(*pte))
+			continue;
+
+		pfn = pte_pfn(*pte);
+
+		va = upper + (i << PAGE_SHIFT);
+
+		if (pfn)
+			seq_printf(s, "\t\t\t\tPAGE ID %03ld VA %016lx PFN %lx TYP %s\n", i, va, pfn, "P");
+	}
 }
 
-static void walk_pd(struct walk_state *state, pud_t addr, unsigned long P) {
-  int i = state->pd_idx;
-  pmd_t *start = (pmd_t *) pud_page_vaddr(addr) + i;
+static void print_pmd_tree(struct seq_file *s, pmd_t *pmd0, unsigned long upper)
+{
+	unsigned long i;
+	unsigned long va;
+	bool leaf;
 
-  if (pmd_present(*start) && pmd_large(*start)) {
-    if (state->page_callback)
-      state->page_callback(state->m, 3, i, P, (long unsigned int)start);
-  } else {
-    if (state->table_callback)
-      state->table_callback(state->m, 3, i, P, (long unsigned int)start);
-    if (pmd_present(*start))
-      walk_pt(state, *start, P + i * PMD_LEVEL_MULT);
-  }
+	for (i = 0; i < PTRS_PER_PMD; i++) {
+		pmd_t *pmd = pmd0 + i;
+		unsigned long pfn;
+
+		if (pmd_none(*pmd) || unlikely(pmd_bad(*pmd)))
+			continue;
+
+		pfn = pmd_pfn(*pmd);
+		leaf = pmd_large(*pmd);
+
+		va = upper + (i << PMD_SHIFT);
+
+		if (pfn)
+			seq_printf(s, "\t\t\tPTE ID %03ld VA %016lx PFN %lx TYP %s\n", i, va, pfn, leaf ? "P" : "T");
+
+		if (leaf)
+			continue;
+
+		print_pte_tree(s, (pte_t *) pmd_page_vaddr(*pmd), va);
+	}
 }
 
-static void walk_pdpt(struct walk_state *state, pgd_t addr, unsigned long P) {
-  int i = state->pdpt_idx;
-  pud_t *start = (pud_t *) pgd_page_vaddr(addr) + i;
+static void print_pud_tree(struct seq_file *s, pud_t *pud0, unsigned long upper)
+{
+	unsigned long i;
+	unsigned long va;
+	bool leaf;
 
-  if (pud_present(*start) && pud_large(*start)) {
-    if (state->page_callback && state->pd_idx == 0)
-      state->page_callback(state->m, 2, i, P, (long unsigned int)start);
-  } else {
-    if (state->table_callback && state->pd_idx == 0)
-      state->table_callback(state->m, 2, i, P, (long unsigned int)start);
-    if (pud_present(*start))
-      walk_pd(state, *start, P + i * PUD_LEVEL_MULT);
-  }
+	for (i = 0; i < PTRS_PER_PUD; i++) {
+		pud_t *pud = pud0 + i;
+		unsigned long pfn;
+
+		if (pud_none(*pud) || unlikely(pud_bad(*pud)))
+			continue;
+
+		pfn = pud_pfn(*pud);
+		leaf = pud_large(*pud);
+
+		va = upper + (i << PUD_SHIFT);
+
+		if (pfn)
+			seq_printf(s, "\t\tPMD ID %03ld VA %016lx PFN %lx TYP %s\n", i, va, pfn, leaf ? "P" : "T");
+
+		if (leaf)
+			continue;
+
+		print_pmd_tree(s, (pmd_t *) pud_page_vaddr(*pud), va);
+	}
 }
 
-static void walk_pml4(struct walk_state *state) {
-  int i = state->pml4_idx;
-  pgd_t *start;
-  struct task_struct *task = NULL;
-  if (selected_pid != -1) {
-    task = pid_task(find_vpid(selected_pid), PIDTYPE_PID);
-  }
-  if (task == NULL) {
-    task = current;
-    selected_pid = current->pid;
-  }
-  start = (pgd_t *) task->mm->pgd + i;
+static void print_p4d_tree(struct seq_file *s, p4d_t *p4d0, unsigned long upper)
+{
+	unsigned long i;
+	unsigned long va;
+	bool leaf;
 
-  if (i == 0 && state->pdpt_idx == 0 && state->pd_idx == 0) {
-    seq_printf(state->m, "PID = %d\n", selected_pid);
-    seq_printf(state->m, "CR3 = %lx\n", my_read_cr3());
-  }
-  if (state->table_callback && state->pdpt_idx == 0 && state->pd_idx == 0)
-    state->table_callback(state->m, 1, i, 0, (long unsigned int)start);
-  if (pgd_present(*start))
-    walk_pdpt(state, *start, i * PGD_LEVEL_MULT);
+	for (i = 0; i < PTRS_PER_P4D; i++) {
+		p4d_t *p4d = p4d0 + i;
+		unsigned long pfn;
+
+		if (p4d_none(*p4d) || unlikely(p4d_bad(*p4d)))
+			continue;
+
+		pfn = p4d_pfn(*p4d);
+		leaf = p4d_large(*p4d);
+
+		va = upper + (i << P4D_SHIFT);
+
+		if (pfn)
+			seq_printf(s, "\tPUD ID %03ld VA %016lx PFN %lx TYP %s\n", i, va, pfn, leaf ? "P" : "T");
+
+		if (leaf)
+			continue;
+
+		print_pud_tree(s, (pud_t *) p4d_page_vaddr(*p4d), va);
+	}
 }
 
-/* **************** Dump page table structure */
+static void print_pgd_tree(struct seq_file *s, pgd_t *pgd0, bool include_kernel)
+{
+	unsigned long i;
+	unsigned long va;
+	bool leaf;
 
-/*
- * Print a readable form of a pgprot_t to the seq_file
- */
+	unsigned long upper = 0;
 
-static void print_bit(struct seq_file *m, pgprotval_t pr, unsigned long int mask, const char *true, const char *false) {
-  seq_printf(m, pr & mask ? true : false);
+	for (i = 0; i < PTRS_PER_PGD; i++) {
+		pgd_t *pgd = pgd0 + i;
+		unsigned long pfn;
+
+		if (pgd_none(*pgd) || unlikely(pgd_bad(*pgd)))
+			continue;
+
+		pfn = pgd_pfn(*pgd);
+		leaf = pgd_large(*pgd);
+
+		if (i == 256) {
+			if (!include_kernel)
+				return;
+
+			upper = PGDIR_MASK << 9;
+		}
+
+		va = upper + (i << PGDIR_SHIFT);
+
+		if (pfn)
+			seq_printf(s, "P4D ID %03ld VA %016lx PFN %lx TYP %s\n", i, va, pfn, leaf ? "P" : "T");
+
+		if (leaf)
+			continue;
+
+		if (!pgtable_l5_enabled())
+			print_p4d_tree(s, (p4d_t *) pgd, va);
+		else
+			print_p4d_tree(s, (p4d_t *) pgd_page_vaddr(*pgd), va);
+	}
 }
 
-static void printk_prot(struct seq_file *m, pgprot_t prot, int level) {
-  pgprotval_t pr = pgprot_val(prot);
-  print_bit(m, pr, _PAGE_RW       , "RW " , "ro " );
-  print_bit(m, pr, _PAGE_USER     , "USR ", "    ");
-  print_bit(m, pr, _PAGE_PWT      , "PWT ", "    ");
-  print_bit(m, pr, _PAGE_PCD      , "PCD ", "    ");
-  print_bit(m, pr, _PAGE_ACCESSED , "ACC ", "    ");
-  print_bit(m, pr, _PAGE_NX       , "NX " , "x  " );
-  switch (level) {
-    case 1:
-    case 2:
-      if (pr & _PAGE_PSE) {
-        print_bit(m, pr, _PAGE_DIRTY    , "DRT ", "    ");
-        print_bit(m, pr, _PAGE_PSE      , "SIZ ", "    ");
-        print_bit(m, pr, _PAGE_GLOBAL   , "GLB ", "    ");
-        print_bit(m, pr, _PAGE_PAT_LARGE, "PAT ", "    ");
-      }
-      break;
-    case 3:
-      print_bit(m, pr, _PAGE_DIRTY    , "DRT ", "    ");
-      print_bit(m, pr, _PAGE_GLOBAL   , "GLB ", "    ");
-      print_bit(m, pr, _PAGE_PAT      , "PAT ", "    ");
-      break;
-  }
-  seq_printf(m, "\n");
+long unsigned int extract_cr3(struct mm_struct *mm)
+{
+	void *vcr3 = mm->pgd;
+	return __pa(vcr3) >> PAGE_SHIFT;
 }
 
-/*
- * On 64 bits, sign-extend the 48 bit address to 64 bit
- */
-static unsigned long normalize_addr(unsigned long u) {
-  return (signed long)(u << 16) >> 16;
+static int pt_seq_show(struct seq_file *s, void *v)
+{
+	struct mm_struct *mm = NULL;
+
+	if (selected_pid != -1) {
+		mm = get_mm_from_pid(s, selected_pid, false);
+	}
+
+	if (!mm) {
+		seq_printf(s, "Invalid PID %d, fallback to %d\n", selected_pid, current->pid);
+
+		mm = get_task_mm(current);
+		selected_pid = current->pid;
+	}
+
+	if (!mm) {
+		seq_printf(s, "Invalid fallback PID %d, exitn", selected_pid); 
+		return 0;
+	}
+
+	seq_printf(s, "CR3 PID %d PFN %lx\n", selected_pid, extract_cr3(mm));
+	seq_printf(s, "\n");
+
+	print_pgd_tree(s, mm->pgd, true);
+
+	mmput(mm);
+
+	return 0;
 }
 
-/* dumps index in PT-page, entry's contents, virtual address (walk), phys addr of the L-- PT-page */
-static void dump_table(struct seq_file *m, int level, int index, unsigned long int offset, unsigned long int entry) {
-  switch (level) {
-    case 1:
-      if (pgd_present(*((pgd_t*)entry))) {
-        seq_printf(m, "PML4 entry #%03d %016lx %016lx %016lx ", index, *((unsigned long int*)entry), normalize_addr(index * PGD_LEVEL_MULT), __pa(pgd_page_vaddr(*((pgd_t*)entry))));
-        printk_prot(m, __pgprot(pgd_val(*((pgd_t*)entry)) & PTE_FLAGS_MASK), 0);
-      } else {
-        //seq_printf(m, "PML4 entry #%03d %016lx %016lx empty\n", index, *((unsigned long int*)entry), normalize_addr(index * PGD_LEVEL_MULT));
-      }
-      break;
-    case 2:
-      if (pud_present(*((pud_t*)entry))) {
-        seq_printf(m, "  PDPT entry #%03d %016lx %016lx %016lx ", index, *((unsigned long int*)entry), normalize_addr(offset + index * PUD_LEVEL_MULT), __pa(pud_page_vaddr(*((pud_t*)entry))));
-        printk_prot(m, __pgprot(pud_val(*((pud_t*)entry)) & PTE_FLAGS_MASK), 1);
-      } else {
-        //seq_printf(m, "  PDPT entry #%03d %016lx %016lx empty\n", index, *((unsigned long int*)entry), normalize_addr(offset + index * PUD_LEVEL_MULT));
-      }
-      break;
-    case 3:
-      if (pmd_present(*((pmd_t*)entry))) {
-        seq_printf(m, "    PD entry #%03d %016lx %016lx %016lx ", index, *((unsigned long int*)entry), normalize_addr(offset + index * PMD_LEVEL_MULT), __pa(pmd_page_vaddr(*((pmd_t*)entry))));
-        printk_prot(m, __pgprot(pmd_val(*((pmd_t*)entry)) & PTE_FLAGS_MASK), 2);
-      } else {
-        //seq_printf(m, "    PD entry #%03d %016lx %016lx empty\n", index, *((unsigned long int*)entry), normalize_addr(offset + index * PMD_LEVEL_MULT));
-      }
-      break;
-  }
+static void *pt_seq_start(struct seq_file *s, loff_t *pos)
+{
+	loff_t *spos;
+
+	if (*pos)
+		return NULL;
+
+	spos = kmalloc(sizeof(loff_t), GFP_KERNEL);
+	if (!spos)
+		return NULL;
+
+	*spos = *pos;
+	return spos;
 }
 
-/*
-static inline unsigned long pud_pfn(pud_t pud) {
-  return (pud_val(pud) & PTE_PFN_MASK) >> PAGE_SHIFT;
-}
-*/
-
-/* dumps index in PT-page, entry's contents, virtual address (walk), phys addr (walk), PA of current PT-page */
-static void my_dump_page(struct seq_file *m, int level, int index, unsigned long int offset, unsigned long int entry) {
-  switch (level) {
-    case 2:
-      seq_printf(m, "  PDPT-page entry #%03d %016lx %016lx %016lx ", index, *((unsigned long int*)entry), normalize_addr(offset + index * PUD_LEVEL_MULT), pud_pfn(*((pud_t*)entry)) << PAGE_SHIFT);
-      printk_prot(m, __pgprot(pud_val(*((pud_t*)entry)) & PTE_FLAGS_MASK), 1);
-      break;
-    case 3:
-      seq_printf(m, "    PD-page entry #%03d %016lx %016lx %016lx ", index, *((unsigned long int*)entry), normalize_addr(offset + index * PMD_LEVEL_MULT), pmd_pfn(*((pmd_t*)entry)) << PAGE_SHIFT);
-      printk_prot(m, __pgprot(pmd_val(*((pmd_t*)entry)) & PTE_FLAGS_MASK), 2);
-      break;
-    case 4:
-      if (pte_present(*((pte_t*)entry))) {
-        seq_printf(m, "      PT-page entry #%03d %016lx %016lx %016lx ", index, *((unsigned long int*)entry), normalize_addr(offset + index * PTE_LEVEL_MULT), pte_pfn(*((pte_t*)entry)) << PAGE_SHIFT);
-        printk_prot(m, pte_pgprot(*((pte_t*)entry)), 3);
-      } else {
-      //seq_printf(m, "      PT entry #%03d %016lx %016lx empty\n", index, *((unsigned long int*)entry), normalize_addr(offset + index * PTE_LEVEL_MULT));
-      }
-      break;
-  }
+static void *pt_seq_next(struct seq_file *s, void *v, loff_t *pos)
+{
+	loff_t *spos = v;
+	*pos = ++*spos;
+	// return spos;
+	return NULL;
 }
 
-static int pt_seq_show(struct seq_file *s, void *v) {
-  int *spos = (int *) v;
-
-  struct walk_state state = {
-    .pml4_idx = *spos / PTRS_PER_PMD / PTRS_PER_PUD,
-    .pdpt_idx = *spos / PTRS_PER_PMD % PTRS_PER_PUD,
-    .pd_idx = *spos % PTRS_PER_PMD,
-    .m = s,
-    .table_callback = dump_table,
-    .page_callback = my_dump_page,
-  };
-
-  walk_pml4(&state);
-  return 0;
+static void pt_seq_stop(struct seq_file *s, void *v)
+{
+	kfree(v);
 }
 
-static void *pt_seq_start(struct seq_file *s, loff_t *pos) {
-  int *spos;
-  if (*pos >= PTRS_PER_PGD * PTRS_PER_PUD * PTRS_PER_PMD)
-    return NULL;
-  spos = kmalloc(sizeof(int), GFP_KERNEL);
-  if (! spos)
-    return NULL;
-  *spos = (int)*pos;
-  return spos;
-}
+ssize_t pt_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos)
+{
+	char mybuf[64];
 
-static void *pt_seq_next(struct seq_file *s, void *v, loff_t *pos) {
-  int *spos = (int *) v;
-  *pos = ++(*spos);
-  if (*spos >= PTRS_PER_PGD * PTRS_PER_PUD * PTRS_PER_PMD)
-    return NULL;
-  return spos;
-}
+	if (count > sizeof(mybuf)) {
+		count = sizeof(mybuf);
+	}
 
-static void pt_seq_stop(struct seq_file *s, void *v) {
-  kfree (v);
-}
+	if (kstrtoint_from_user(buf, count, 10, &selected_pid)) {
+		selected_pid = -1;
+	}
 
-ssize_t pt_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos) {
-  char mybuf[64];
-  if (count>sizeof(mybuf)) {
-    count = sizeof(mybuf);
-  }
-  if (kstrtoint_from_user(buf,count,10,&selected_pid)) {
-    selected_pid = -1;
-  }
-  return count;
+	return count;
 }
 
 static struct seq_operations pt_seq_ops = {
-  .start = pt_seq_start,
-  .next  = pt_seq_next,
-  .stop  = pt_seq_stop,
-  .show  = pt_seq_show,
+	.start = pt_seq_start,
+	.next  = pt_seq_next,
+	.stop  = pt_seq_stop,
+	.show  = pt_seq_show,
 };
 
-static int pt_open(struct inode *inode, struct file *file) {
-  return seq_open(file, &pt_seq_ops);
+static int pt_open(struct inode *inode, struct file *file)
+{
+	return seq_open(file, &pt_seq_ops);
 };
 
-static struct file_operations pt_file_ops = {
-  .owner   = THIS_MODULE,
-  .open    = pt_open,
-  .read    = seq_read,
-  .write   = pt_write,
-  .llseek  = seq_lseek,
-  .release = seq_release
+static struct proc_ops pt_file_ops = {
+	.proc_open    = pt_open,
+	.proc_read    = seq_read,
+	.proc_write   = pt_write,
+	.proc_lseek   = seq_lseek,
+	.proc_release = seq_release
 };
 
 static struct proc_dir_entry *pt_file;
 
-int init_module(void) {
-  pt_file = proc_create("page_tables", 0666, NULL, &pt_file_ops);
-  if (!pt_file)
-    return -ENOMEM;
+int init_module(void)
+{
+	pt_file = proc_create("page_tables", 0666, NULL, &pt_file_ops);
+	if (!pt_file)
+		return -ENOMEM;
 
-  return 0;
+	return 0;
 }
 
-void cleanup_module(void) {
-  remove_proc_entry("page_tables", NULL);
+void cleanup_module(void)
+{
+	remove_proc_entry("page_tables", NULL);
 }
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Arjan van de Ven <arjan@linux.intel.com>");
+MODULE_AUTHOR("Jiyuan Zhang <jiyuanz3@illinois.edu>");
 MODULE_DESCRIPTION("Kernel debugging helper that dumps pagetables");

@@ -1,5 +1,13 @@
 #!/bin/bash 
 
+SOURCE="${BASH_SOURCE[0]:-$0}";
+while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+        DIR="$( cd -P "$( dirname -- "$SOURCE"; )" &> /dev/null && pwd 2> /dev/null; )";
+        SOURCE="$( readlink -- "$SOURCE"; )";
+        [[ $SOURCE != /* ]] && SOURCE="${DIR}/${SOURCE}"; # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+done
+SCRIPT_DIR="$( cd -P "$( dirname -- "$SOURCE"; )" &> /dev/null && pwd 2> /dev/null; )";
+
 kill_descendant_processes() {
     local pid="$1"
     local and_self="${2:-false}"
@@ -60,11 +68,11 @@ echo "ENABLE_FILE             = ${ENABLE_FILE}"
 echo "Start tracer..."
 mkdir -p $OUTPUT_DIR
 # launch tracer 
-$TRACER_DIR/build/bin64/drrun -t drcachesim                  \
+"$SCRIPT_DIR/build/bin64/drrun" -t drcachesim                  \
                               -offline                       \
-                              -outdir $OUTPUT_DIR            \
+                              -outdir "$OUTPUT_DIR"            \
                               -verbose 1                     \
-                              -enabler_filename $ENABLE_FILE \
+                              -enabler_filename "$ENABLE_FILE" \
                               -trace_after_instrs 1          \
                                                              \
                               -exit_after_tracing 2000000000      \

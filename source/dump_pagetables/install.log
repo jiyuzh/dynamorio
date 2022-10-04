@@ -1,8 +1,0 @@
-make -C /lib/modules/4.4.0-130-generic/build M=/disk/memphis/data/isca19/memcached/install_memcached/source/dump_pagetables modules
-make[1]: Entering directory '/usr/src/linux-headers-4.4.0-130-generic'
-  CC [M]  /disk/memphis/data/isca19/memcached/install_memcached/source/dump_pagetables/dump_pagetables.o
-  Building modules, stage 2.
-  MODPOST 1 modules
-  CC      /disk/memphis/data/isca19/memcached/install_memcached/source/dump_pagetables/dump_pagetables.mod.o
-  LD [M]  /disk/memphis/data/isca19/memcached/install_memcached/source/dump_pagetables/dump_pagetables.ko
-make[1]: Leaving directory '/usr/src/linux-headers-4.4.0-130-generic'
