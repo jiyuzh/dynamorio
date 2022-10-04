@@ -38,7 +38,7 @@ const unsigned int PWC_SIZE[] = { PWC_ENTRY_SIZE * 2, PWC_ENTRY_SIZE * 4, PWC_EN
 #define PAGE_TABLE_ENTRY_SIZE 8 
 #define PAGE_OFFSET_SIZE 12
 #define PAGE_INDEX_SIZE 9
-#define SIMULATOR_HEARTBEAT_FREQ 16 //Log of number of meminsts to process between two simulator hearbeats
+#define SIMULATOR_HEARTBEAT_FREQ 22 //Log of number of meminsts to process between two simulator hearbeats
 
 #include <iostream>
 #include <iterator>

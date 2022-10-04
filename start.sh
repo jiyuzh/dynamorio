@@ -1,4 +1,5 @@
-TRACE_DIR=/usr/src/dynamorio-trace/eval/results/2022-10-04-1664899431-debug
+#TRACE_DIR=/usr/src/dynamorio/results/2022-10-02-1664742812-redis-100g
+TRACE_DIR=/usr/src/dynamorio/results/2022-10-02-1664742017-redis-1g
 
 OUTPUT_FILE="$TRACE_DIR/sim.log"
 
@@ -21,5 +22,5 @@ TRACE=$(find $TRACE_DIR -maxdepth 1 -name "drmemtrace*" -type d)
                     -L2_size   $(( 16 * 1024 * 1024 ))           \
                     -L2_assoc  16                                \
                     -LL_size   $(( 32 * 1024 * 1024 ))           \
-                    -LL_assoc  16                                #\
-                    #> $OUTPUT_FILE 2>&1 & pid=$! &
+                    -LL_assoc  16                                \
+                    2>&1 | tee $OUTPUT_FILE
