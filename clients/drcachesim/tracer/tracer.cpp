@@ -1,4 +1,4 @@
-/* ******************************************************************************
+  /* ******************************************************************************
  * Copyright (c) 2011-2018 Google, Inc.  All rights reserved.
  * Copyright (c) 2010 Massachusetts Institute of Technology  All rights reserved.
  * ******************************************************************************/
@@ -59,6 +59,15 @@
 #include "../common/options.h"
 #include "../common/utils.h"
 
+#include <assert.h>
+
+#include <iostream>
+#include <sys/types.h>
+#include <signal.h>
+
+#include <ctime>
+#include <iostream>
+
 #ifdef ARM
 #    include "../../../core/unix/include/syscall_linux_arm.h" // for SYS_cacheflush
 #endif
@@ -110,6 +119,50 @@ static size_t redzone_size;
 static size_t max_buf_size;
 
 static drvector_t scratch_reserve_vec;
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/file.h>
+#include <fcntl.h>
+
+/*! Try to get lock. Return its file descriptor or -1 if failed.
+ *
+ *  @param lockName Name of file used as lock (i.e. '/var/lock/myLock').
+ *  @return File descriptor of lock file, or -1 if failed.
+ */
+
+#include <unistd.h>
+
+static unsigned int microseconds = 500000;
+static char const * lockFilename = "/tmp/dumppagetable.lock";
+static char const * lockFilename2 = "/tmp/checkEnableFile.lock";
+static bool pageTableWasDumped = false;
+
+int tryGetLock( char const *lockName )
+{
+    mode_t m = umask( 0 );
+    int fd = open( lockName, O_RDWR|O_CREAT, 0666 );
+    umask( m );
+    if( fd >= 0 && flock( fd, LOCK_EX | LOCK_NB ) < 0 )
+    {
+        close( fd );
+        fd = -1;
+    }
+    return fd;
+}
+
+/*! Release the lock obtained with tryGetLock( lockName ).
+ *
+ *  @param fd File descriptor of lock returned by tryGetLock( lockName ).
+ *  @param lockName Name of file used as lock (i.e. '/var/lock/myLock').
+ */
+void releaseLock( int fd, char const *lockName )
+{
+    if( fd < 0 )
+        return;
+    remove( lockName );
+    close( fd );
+}
 
 /* thread private buffer and counter */
 typedef struct {
@@ -421,7 +474,8 @@ memtrace(void *drcontext, bool skip_size_cap)
                  mem_ref += instru->sizeof_entry()) {
                 trace_type_t type = instru->get_entry_type(mem_ref);
                 if (type != TRACE_TYPE_THREAD && type != TRACE_TYPE_THREAD_EXIT &&
-                    type != TRACE_TYPE_PID) {
+                    type != TRACE_TYPE_PID 
+                    && type != TRACE_TYPE_INSTR_BUNDLE) {
                     addr_t virt = instru->get_entry_addr(mem_ref);
                     addr_t phys = physaddr.virtual2physical(virt);
                     DR_ASSERT(type != TRACE_TYPE_INSTR_BUNDLE);
@@ -509,6 +563,32 @@ memtrace(void *drcontext, bool skip_size_cap)
         if (!exited_process) {
             exited_process = true;
             dr_mutex_unlock(mutex);
+
+            std::cerr << "Tracer reached the target of " << op_exit_after_tracing.get_value() << " and will dump the page table by executing " << (std::string("cat /proc/page_tables > ") + op_outdir.get_value().c_str() + "/pt_dump_raw").c_str() << " ...";
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-result"
+            int lockResult = tryGetLock(lockFilename); 
+            while (lockResult < 0) {
+              usleep(microseconds);
+              lockResult = tryGetLock(lockFilename); 
+              std::cerr << "Page dump module is busy and locked. I am waiting for " << lockFilename << " to be released." << std::endl;
+            }
+            if (!pageTableWasDumped) {
+              /*std::cerr << "Page table dump module was attached to PID=" << std::to_string(getpid()) << std::endl;
+              system((std::string("echo ") + std::to_string(getpid()) + " > /proc/page_tables").c_str());
+              system((std::string("cat /proc/page_tables > ") + op_outdir.get_value().c_str() + "/pt_dump_raw").c_str());
+              system((std::string("cat /proc/" + std::to_string(getpid()) + "/maps > ") + op_outdir.get_value().c_str() + "/proc_maps").c_str());
+              
+              if (op_VM_name.get_value() != "") {
+                system((std::string("") + op_VM_hookscript_path.get_value().c_str() + " " + op_VM_name.get_value().c_str() + " > " + op_outdir.get_value().c_str() + "/vm_pt_dump_raw").c_str()) ;
+                std::cerr << (std::string("") + op_VM_hookscript_path.get_value().c_str() + " " + op_VM_name.get_value().c_str() + " > " + op_outdir.get_value().c_str() + "/vm_pt_dump_raw").c_str();
+              }*/
+              pageTableWasDumped = true;
+            }
+            releaseLock(lockResult, lockFilename); 
+#pragma GCC diagnostic pop
+            std::cerr << "Done" << std::endl;
+
             // XXX i#2644: we would prefer detach_after_tracing rather than exiting
             // the process but that requires a client-triggered detach so for now
             // we settle for exiting.
@@ -1252,11 +1332,12 @@ event_kernel_xfer(void *drcontext, const dr_kernel_xfer_info_t *info)
  */
 
 static uint64 instr_count;
+static uint64 fine_grained_check_instr_count;
 static volatile bool tracing_enabled;
 static void *enable_tracing_lock;
 
 #ifdef X86_64
-#    define DELAYED_CHECK_INLINED 1
+//#    define DELAYED_CHECK_INLINED 1 //Artemiy disable inlining to go to 
 #else
 // XXX: we don't have the inlining implemented yet.
 #endif
@@ -1320,7 +1401,29 @@ hit_instr_count_threshold()
     bool do_flush = false;
     dr_mutex_lock(enable_tracing_lock);
     if (!tracing_enabled) { // Already came here?
-        NOTIFY(0, "Hit delay threshold: enabling tracing.\n");
+        //NOTIFY(0, "Hit delay threshold: enabling tracing.\n");
+      
+        time_t rawtime;
+        struct tm * timeinfo;
+        char buffer[80];
+
+        time (&rawtime);
+        timeinfo = localtime(&rawtime);
+
+        strftime(buffer,sizeof(buffer),"%d-%m-%Y %H:%M:%S",timeinfo);
+        std::string str(buffer);
+
+        std::cerr << std::endl;
+        std::cerr << "!!!!***ATTENTION***!!!!\t" << str << "\tStarting recording a trace on " << dr_get_process_id() << std::endl;
+        std::cerr << std::endl;
+
+        FILE* enabler_file = fopen(op_enabler_filename.get_value().c_str(),"w+");
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-result" 
+        fprintf(enabler_file, "%d", dr_get_process_id());
+#pragma GCC diagnostic pop 
+        fclose(enabler_file);
+
         disable_delay_instrumentation();
         enable_tracing_instrumentation();
         do_flush = true;
@@ -1330,13 +1433,39 @@ hit_instr_count_threshold()
         DR_ASSERT(false);
 }
 
+
 #ifndef DELAYED_CHECK_INLINED
 static void
 check_instr_count_threshold(uint incby)
 {
+// Clean code:
+//    instr_count += incby;
+//    if (instr_count > op_trace_after_instrs.get_value())
+//        hit_instr_count_threshold();
+
+//Artemiy: dirty hack: replace existing instr counter comparison with threshold with checking a file
     instr_count += incby;
-    if (instr_count > op_trace_after_instrs.get_value())
-        hit_instr_count_threshold();
+    fine_grained_check_instr_count += incby;
+    uint shift_size = 26;
+    
+    if ((fine_grained_check_instr_count >> shift_size) > 0) {
+      fine_grained_check_instr_count = 0;
+      //check file
+      int lockResult = tryGetLock(lockFilename2); 
+      if (lockResult >= 0) {
+        FILE* enabler_file = fopen(op_enabler_filename.get_value().c_str(),"r");
+        int enabler_file_status = 0;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-result" 
+        fscanf(enabler_file, "%d", &enabler_file_status);
+#pragma GCC diagnostic pop 
+        if (enabler_file_status) {
+          hit_instr_count_threshold();
+        }
+        fclose(enabler_file);
+        releaseLock(lockResult, lockFilename2); 
+      }
+    }
 }
 #endif
 
@@ -1606,7 +1735,7 @@ event_exit(void)
 
     dr_mutex_destroy(mutex);
     drutil_exit();
-    if (op_trace_after_instrs.get_value() > 0)
+    if ( (op_trace_after_instrs.get_value() > 0) || 1)  //Artemiy
         exit_delay_instrumentation();
     drmgr_exit();
     func_trace_exit();
@@ -1826,6 +1955,7 @@ drmemtrace_client_main(client_id_t id, int argc, const char *argv[])
     dr_log(NULL, DR_LOG_ALL, 1, "drcachesim client initializing\n");
 
     if (op_use_physical.get_value()) {
+        assert(0); //Artemiy: make sure we use virtual addresses 
         have_phys = physaddr.init();
         if (!have_phys)
             NOTIFY(0, "Unable to open pagemap: using virtual addresses.\n");

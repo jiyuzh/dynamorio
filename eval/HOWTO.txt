@@ -1,0 +1,13 @@
+HOWTO:
+
+in vm trace, eval/faultall.c fault all memory
+in host trace, source/dump_pagetables/install.sh install dumper
+in host trace, echo <pid> | sudo tee /proc/page_tables && sudo cat /proc/page_tables > host.pt_dump_raw dump vm instance page table
+in host trace, sudo pmap -x <pid>, get main mapping region
+in host trace, source/dump_pagetables/transform_pt_host.dib, process host.pt_dump
+in vm sim, pull host.pt_dump with scp
+
+in vm trace, eval/script2, generate trace
+in vm trace, source/dump_pagetables/transform_pt_guest.dib, process pt_dump_raw
+in vm trace, eval/results/???/, >>> sed -i "1i $(wc -l ./pt_dump | awk '{print $1}')" ./pt_dump <<<, create header
+in vm sim, edit and run ./start.sh

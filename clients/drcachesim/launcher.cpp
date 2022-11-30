@@ -80,11 +80,14 @@ static analyzer_t *analyzer;
 static pid_t child;
 #endif
 
+static bool enabled;
+
 #ifdef UNIX
 static void
 signal_handler(int sig, siginfo_t *info, void *cxt)
 {
 #    define INTERRUPT_MSG "Interrupted: exiting.\n"
+    printf("catcher() has gained control\n");
     ssize_t res = write(STDERR_FILENO, INTERRUPT_MSG, sizeof(INTERRUPT_MSG));
     (void)res; // Work around compiler warnings.
     // Terminate child in case shell didn't already send this there.
@@ -195,6 +198,7 @@ _tmain(int argc, const TCHAR *targv[])
     int rc = sigaction(SIGINT, &act, NULL);
     if (rc != 0)
         NOTIFY(0, "WARNING", "Failed to set up interrupt handler\n");
+  
 #else
     // We do not bother with SetConsoleCtrlHandler for two reasons:
     // one, there's no problem to solve like the UNIX fifo file left
@@ -262,6 +266,7 @@ _tmain(int argc, const TCHAR *targv[])
         }
     }
 
+    enabled = false;
     if (op_offline.get_value() && !have_trace_file) {
         // Initial sanity check: may still be unwritable by this user, but this
         // serves as at least an existence check.

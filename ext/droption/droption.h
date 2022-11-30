@@ -539,6 +539,13 @@ droption_t<int>::convert_from_string(const std::string s)
 }
 template <>
 inline bool
+droption_t<unsigned long long int>::convert_from_string(const std::string s)
+{
+    value = strtoull(s.c_str(), NULL, 10);
+    return true;
+}
+template <>
+inline bool
 droption_t<unsigned int>::convert_from_string(const std::string s)
 {
     int input = atoi(s.c_str());
@@ -650,6 +657,14 @@ droption_t<int>::default_as_string() const
 template <>
 inline std::string
 droption_t<unsigned int>::default_as_string() const
+{
+    std::ostringstream stream;
+    stream << std::dec << defval;
+    return stream.str();
+}
+template <>
+inline std::string
+droption_t<unsigned long long int>::default_as_string() const
 {
     std::ostringstream stream;
     stream << std::dec << defval;

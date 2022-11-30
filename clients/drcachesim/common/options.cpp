@@ -52,6 +52,14 @@ droption_t<std::string> op_ipc_name(
     "for each instance of the simulator being run at any one time.  On Windows, the name "
     "is limited to 247 characters.");
 
+droption_t<std::string> op_VM_name(
+    DROPTION_SCOPE_ALL, "VM_name", "", "VM name",
+    "Specify VM name for dump.");
+
+droption_t<std::string> op_VM_hookscript_path(
+    DROPTION_SCOPE_ALL, "VM_hookscript", "", "VM hook script",
+    "Specify VM hook script for dump, should write the dump to stdout. Will write the dump to ourdir/vm_pt_dump_raw.");
+
 droption_t<std::string> op_outdir(
     DROPTION_SCOPE_ALL, "outdir", ".", "Target directory for offline trace files",
     "For the offline analysis mode (when -offline is requested), specifies the path "
@@ -226,7 +234,12 @@ droption_t<bytesize_t> op_trace_after_instrs(
     "executions are observed.  At that point, regular tracing is put into place.  Use "
     "-max_trace_size to set a limit on the subsequent trace length.");
 
-droption_t<bytesize_t> op_exit_after_tracing(
+droption_t<std::string> op_enabler_filename(
+    DROPTION_SCOPE_CLIENT, "enabler_filename", "/tmp/default_file_enabler",
+    "Enabler file name",
+    "Specifies name of the file which should have 1 for tracer to start recording a trace");
+
+droption_t<unsigned long long int> op_exit_after_tracing(
     DROPTION_SCOPE_CLIENT, "exit_after_tracing", 0,
     "Exit the process after tracing N references",
     "If non-zero, after tracing the specified number of references, the process is "
