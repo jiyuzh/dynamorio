@@ -1,10 +1,10 @@
 #TRACE_DIR=/usr/src/dynamorio/results/2022-10-02-1664742812-redis-100g
-TRACE_DIR=/usr/src/dynamorio/results/2022-10-02-1664742017-redis-1g
+#TRACE_DIR=/usr/src/dynamorio/results/2022-10-02-1664742017-redis-1g
 
 OUTPUT_FILE="$TRACE_DIR/sim.log"
-
 TRACE=$(find $TRACE_DIR -maxdepth 1 -name "drmemtrace*" -type d)
-/usr/src/dynamorio/build/bin64/drrun -t drcachesim \
+
+/home/ubuntu/simulator/build/bin64/drrun -t drcachesim \
                     -indir $TRACE \
                     -pt_dump_file $TRACE_DIR/pt_dump \
 					-vt_pt_dump_file $TRACE_DIR/../host.pt_dump  \
@@ -24,3 +24,11 @@ TRACE=$(find $TRACE_DIR -maxdepth 1 -name "drmemtrace*" -type d)
                     -LL_size   $(( 32 * 1024 * 1024 ))           \
                     -LL_assoc  16                                \
                     2>&1 | tee $OUTPUT_FILE
+
+sync
+
+sudo rm $TRACE/drmemtrace.trace
+
+sync
+
+echo "--- SIM DONE $TRACE_DIR ---"

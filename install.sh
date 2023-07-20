@@ -1,6 +1,6 @@
 mkdir -p build && pushd build
 # Generate makefiles with CMake.  Pass in the path to your source directory.
-CFLAGS=-g CXXFLAGS=-g cmake -DDEBUG=ON ..
+CFLAGS=-g CXXFLAGS=-g cmake CC=/usr/bin/gcc-7 CXX=/usr/bin/g++-7 -DDEBUG=ON ..
 # Build.
 make -j
 popd
