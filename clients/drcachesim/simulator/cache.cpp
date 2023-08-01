@@ -43,6 +43,8 @@ cache_t::init(int associativity_, int line_size_, int total_size,
 {
     std::cerr << "Initialising a cache with size: " << total_size << " with assoc: " << associativity_ << " with line size: " << line_size_ << std::endl;
     // convert total_size to num_blocks to fit for caching_device_t::init
+    if (line_size_ < 1)
+        return false;
     int num_lines = total_size / line_size_;
 
     return caching_device_t::init(associativity_, line_size_, num_lines, parent_, stats_,
