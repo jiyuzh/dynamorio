@@ -162,12 +162,13 @@ caching_device_t::init(int associativity_, int block_size_, int num_blocks_,
                        prefetcher_t *prefetcher_, bool inclusive_,
                        const std::vector<caching_device_t *> &children_)
 {
-    //if (!IS_POWER_OF_2(associativity_) || !IS_POWER_OF_2(block_size_) ||
-    //    !IS_POWER_OF_2(num_blocks_) ||
-    //    // Assuming caching device block size is at least 4 bytes
-    //    block_size_ < 4)
-    //    return false;
-    // std::cerr << associativity_ << " " << num_blocks_;
+    // Assume cache has nonzero capacity.
+    if (associativity < 1 || num_blocks < 1)
+        return false;
+    // Assume caching device block size is at least 4 bytes.
+    if (!IS_POWER_OF_2(block_size) || block_size < 4)
+        return false;
+
     if (stats_ == NULL)
         return false; // A stats must be provided for perf: avoid conditional code
     else if (!*stats_)
@@ -176,12 +177,15 @@ caching_device_t::init(int associativity_, int block_size_, int num_blocks_,
     block_size = block_size_;
     num_blocks = num_blocks_;
     loaded_blocks = 0;
-    blocks_per_set = num_blocks / associativity;
-    assoc_bits = compute_log2(associativity);
+    blocks_per_way = num_blocks_ / associativity;
+    // Make sure num_blocks_ is evenly divisible by associativity
+    if (blocks_per_way * associativity_ != num_blocks_)
+        return false;
+    blocks_per_way_mask = blocks_per_way - 1;
     block_size_bits = compute_log2(block_size);
-    blocks_per_set_mask = blocks_per_set - 1;
-    //if (assoc_bits == -1 || block_size_bits == -1 || !IS_POWER_OF_2(blocks_per_set))
-    if (block_size_bits == -1 || !IS_POWER_OF_2(blocks_per_set))
+    // Non-power-of-two associativities and total cache sizes are allowed, so
+    // long as the number blocks per cache way is a power of two.
+    if (block_size_bits == -1 || !IS_POWER_OF_2(blocks_per_way))
         return false;
     parent = parent_;
     stats = stats_;
