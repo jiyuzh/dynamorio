@@ -1,7 +1,7 @@
 #TRACE_DIR=/usr/src/dynamorio/results/2022-10-02-1664742812-redis-100g
 #TRACE_DIR=/usr/src/dynamorio/results/2022-10-02-1664742017-redis-1g
 
-OUTPUT_FILE="$TRACE_DIR/sim.log"
+OUTPUT_FILE="$TRACE_DIR/sim-6138-native.log"
 TRACE=$(find $TRACE_DIR -maxdepth 1 -name "drmemtrace*" -type d)
 
 /home/ubuntu/simulator/build/bin64/drrun -t drcachesim \

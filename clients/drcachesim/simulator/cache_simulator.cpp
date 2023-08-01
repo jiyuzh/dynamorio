@@ -32,7 +32,7 @@
 
 // Set properties of Page Walk Caches
 #define NUM_PWC 3
-#define PWC_ENTRY_SIZE 1
+#define PWC_ENTRY_SIZE 8
 const unsigned int PWC_ASSOC[] = { 1, 4, 4};
 const unsigned int PWC_SIZE[] = { PWC_ENTRY_SIZE * 2, PWC_ENTRY_SIZE * 4, PWC_ENTRY_SIZE * 32};
 

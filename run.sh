@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 TRACE_DIR=/home/ubuntu/tracer/eval/scripts2/results/evaluation-using-nested/2023-02-27-1677530600-memcached
 source ./run_common.sh
 

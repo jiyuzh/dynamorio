@@ -163,10 +163,10 @@ caching_device_t::init(int associativity_, int block_size_, int num_blocks_,
                        const std::vector<caching_device_t *> &children_)
 {
     // Assume cache has nonzero capacity.
-    if (associativity < 1 || num_blocks < 1)
+    if (associativity_ < 1 || num_blocks_ < 1)
         return false;
     // Assume caching device block size is at least 4 bytes.
-    if (!IS_POWER_OF_2(block_size) || block_size < 4)
+    if (!IS_POWER_OF_2(block_size_) || block_size_ < 4)
         return false;
 
     if (stats_ == NULL)
